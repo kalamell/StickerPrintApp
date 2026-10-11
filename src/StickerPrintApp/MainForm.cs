@@ -87,6 +87,8 @@ public sealed class MainForm : Form
     private readonly CheckBox _chkShowOrganization = new() { Text = "แสดงองค์กร (Organization)", AutoSize = true };
     private readonly CheckBox _chkShowCategory = new() { Text = "แสดง Category", AutoSize = true };
     private readonly CheckBox _chkInverted = new() { Text = "Category แบบแถบดำ ตัวอักษรขาว", AutoSize = true };
+    private readonly NumericUpDown _numNameSpacing = new() { Minimum = 0.8m, Maximum = 2m, Increment = 0.05m, DecimalPlaces = 2, Width = 80 };
+    private readonly CheckBox _chkCenter = new() { Text = "จัดกลุ่มข้อความไว้กึ่งกลางแนวตั้ง (ไม่ติ๊ก = ชิดบน)", AutoSize = true };
     private readonly CheckBox _chkBorder = new() { Text = "มีกรอบรอบสติกเกอร์", AutoSize = true };
     private readonly Button _btnSave = new() { Text = "บันทึกการตั้งค่า", AutoSize = true, Padding = new Padding(12, 4, 12, 4) };
 
@@ -246,7 +248,9 @@ public sealed class MainForm : Form
             ("", _chkShowOrganization),
             ("", _chkShowCategory),
             ("", _chkInverted),
-            ("", _chkBorder)));
+            ("", _chkBorder),
+            ("ระยะห่างบรรทัดชื่อ (เท่าของขนาดตัวอักษร)", _numNameSpacing),
+            ("", _chkCenter)));
 
         flow.Controls.Add(_btnSave);
 
@@ -355,6 +359,8 @@ public sealed class MainForm : Form
             _chkShowCategory.Checked = s.ShowCategory;
             _chkInverted.Checked = s.CategoryInverted;
             _chkBorder.Checked = s.BorderFrame;
+            _numNameSpacing.Value = Clamp(_numNameSpacing, s.NameLineSpacing);
+            _chkCenter.Checked = s.CenterVertically;
 
             ShowAccountInfo();
         }
@@ -515,6 +521,8 @@ public sealed class MainForm : Form
         s.ShowCategory = _chkShowCategory.Checked;
         s.CategoryInverted = _chkInverted.Checked;
         s.BorderFrame = _chkBorder.Checked;
+        s.NameLineSpacing = (double)_numNameSpacing.Value;
+        s.CenterVertically = _chkCenter.Checked;
     }
 
     private static decimal Clamp(NumericUpDown n, double v) => Math.Clamp((decimal)v, n.Minimum, n.Maximum);
@@ -597,7 +605,7 @@ public sealed class MainForm : Form
             _cboPrinter, _cboSize, _numW, _numH, _chkLandscape, _numPad, _numOffX, _numOffY, _numCopies,
             _cboRawLang, _cboDpi, _numGap, _cboBaud, _chkRotate180,
             _cboFont, _chkShowTicket, _chkShowTitle, _chkShowPosition, _chkShowOrganization, _chkShowCategory,
-            _chkInverted, _chkBorder,
+            _chkInverted, _chkBorder, _numNameSpacing, _chkCenter,
         ];
         foreach (var c in live)
         {

@@ -97,6 +97,12 @@ public sealed class AppSettings
     public bool CategoryInverted { get; set; } = true;
     public bool BorderFrame { get; set; }
 
+    /// <summary>Distance between the two name lines, in em (1.0 = tight).</summary>
+    public double NameLineSpacing { get; set; } = 1.05;
+
+    /// <summary>Centre name/position/organization vertically instead of stacking them from the top.</summary>
+    public bool CenterVertically { get; set; }
+
     [JsonIgnore]
     public static string Folder { get; } =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "StickerPrintApp");
