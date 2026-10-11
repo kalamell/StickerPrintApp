@@ -46,6 +46,9 @@ public sealed class AppSettings
     /// <summary>Job field that selects the station (e.g. printerId). Empty = accept jobs for every station.</summary>
     public string StationField { get; set; } = "printerId";
 
+    /// <summary>Also print jobs that don't name a station (any free station may take them).</summary>
+    public bool AcceptUnassigned { get; set; } = true;
+
     public PendingMode PendingMode { get; set; } = PendingMode.StatusPending;
     public ConnectionMode ConnectionMode { get; set; } = ConnectionMode.Realtime;
     public int PollIntervalSeconds { get; set; } = 3;

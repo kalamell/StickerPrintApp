@@ -28,7 +28,9 @@ public sealed class FirestoreJobSource
 
     public string Description =>
         $"{_settings.ProjectId}/{_settings.Collection}" +
-        (string.IsNullOrWhiteSpace(_settings.StationField) ? "" : $" ({_settings.StationField} = {_settings.StationId})") +
+        (HasStationFilter
+            ? $" ({_settings.StationField} = {_settings.StationId}{(_settings.AcceptUnassigned ? " หรือไม่ระบุ" : "")})"
+            : "") +
         (_settings.ConnectionMode == ConnectionMode.Polling ? " [Polling]" : "");
 
     /// <summary>Connects and keeps listening, reconnecting with back-off, until <paramref name="ct"/> is cancelled.</summary>
@@ -68,6 +70,7 @@ public sealed class FirestoreJobSource
     private async Task ListenAsync(FirestoreDb db, CancellationToken ct, Action onConnected)
     {
         var gotFirst = 0;
+        HashSet<string> emitted = []; // callbacks are sequential, so no locking needed
         var listener = BuildQuery(db).Listen(snapshot =>
         {
             // "Connected" only once data actually flows; a blocked gRPC stream otherwise looks healthy.
@@ -78,10 +81,14 @@ public sealed class FirestoreJobSource
             }
 
             // A job re-enters the query (ChangeType.Added) whenever it becomes unprinted again,
-            // which is how a reprint can be requested from the backend.
+            // which is how a reprint can be requested from the backend. Modified covers a job that is
+            // (re)assigned to this station while still pending.
             foreach (var change in snapshot.Changes)
             {
-                if (change.ChangeType == DocumentChange.Type.Added)
+                var id = change.Document.Id;
+                if (change.ChangeType == DocumentChange.Type.Removed || !IsForThisStation(change.Document))
+                    emitted.Remove(id);
+                else if (emitted.Add(id))
                     Emit(change.Document);
             }
         }, ct);
@@ -122,7 +129,7 @@ public sealed class FirestoreJobSource
 
             // Only report documents that newly appeared, mirroring the listener's "Added" events.
             var current = new HashSet<string>();
-            foreach (var doc in snapshot.Documents)
+            foreach (var doc in snapshot.Documents.Where(IsForThisStation))
             {
                 current.Add(doc.Id);
                 if (!previous.Contains(doc.Id))
@@ -175,7 +182,9 @@ public sealed class FirestoreJobSource
             ? q.WhereEqualTo("printed", false)
             : q.WhereEqualTo("status", StatusPending);
 
-        if (!string.IsNullOrWhiteSpace(_settings.StationField) && !string.IsNullOrWhiteSpace(_settings.StationId))
+        // With unassigned jobs accepted, station filtering happens client-side (IsForThisStation),
+        // because Firestore cannot query for a missing field. Only pending jobs are read, so this is cheap.
+        if (HasStationFilter && !_settings.AcceptUnassigned)
         {
             var id = _settings.StationId.Trim();
             // The backend may store the station as a number (1) or a string ("1"); match both.
@@ -184,6 +193,22 @@ public sealed class FirestoreJobSource
                 : q.WhereEqualTo(_settings.StationField, id);
         }
         return q;
+    }
+
+    private bool HasStationFilter =>
+        !string.IsNullOrWhiteSpace(_settings.StationField) && !string.IsNullOrWhiteSpace(_settings.StationId);
+
+    /// <summary>
+    /// True if the job names this station, or names no station at all (when unassigned jobs are accepted;
+    /// every station then competes and the transactional claim makes sure only one prints it).
+    /// </summary>
+    private bool IsForThisStation(DocumentSnapshot doc)
+    {
+        if (!HasStationFilter || !_settings.AcceptUnassigned)
+            return true; // already filtered by the query
+
+        var value = ReadField(doc.ToDictionary(), _settings.StationField);
+        return value.Length == 0 || string.Equals(value, _settings.StationId.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
     private PrintJob ToJob(DocumentSnapshot doc)

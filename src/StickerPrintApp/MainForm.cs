@@ -46,6 +46,7 @@ public sealed class MainForm : Form
     private readonly TextBox _txtCollection = new() { Width = 240 };
     private readonly ComboBox _cboStationId = new() { Width = 120 };
     private readonly TextBox _txtStationField = new() { Width = 240 };
+    private readonly CheckBox _chkAcceptUnassigned = new() { Text = "รับงานที่ไม่ได้ระบุเครื่องด้วย (Station ที่ว่างก่อนได้งาน ไม่พิมพ์ซ้ำ)", AutoSize = true };
     private readonly ComboBox _cboPending = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300 };
     private readonly ComboBox _cboConnMode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300 };
     private readonly NumericUpDown _numPoll = new() { Minimum = 1, Maximum = 60, Width = 80 };
@@ -206,6 +207,7 @@ public sealed class MainForm : Form
             ("Collection", _txtCollection),
             ("Printer Station # (เครื่องนี้)", _cboStationId),
             ("ฟิลด์ที่ใช้กรอง Station", _txtStationField),
+            ("", _chkAcceptUnassigned),
             ("", new Label { AutoSize = true, ForeColor = Color.DimGray, Text = "รับเฉพาะ job ที่ฟิลด์นี้ = เลข Station (รองรับทั้งตัวเลข 1 และข้อความ \"1\"); เว้นว่าง = รับทุก job" }),
             ("งานที่ยังไม่พิมพ์คือ", _cboPending),
             ("การเชื่อมต่อ", _cboConnMode),
@@ -296,6 +298,7 @@ public sealed class MainForm : Form
             _cboStationId.Items.AddRange(["1", "2", "3"]);
             _cboStationId.Text = s.StationId;
             _txtStationField.Text = s.StationField;
+            _chkAcceptUnassigned.Checked = s.AcceptUnassigned;
             _cboPending.Items.Clear();
             _cboPending.Items.AddRange(["status == \"pending\"", "printed == false"]);
             _cboPending.SelectedIndex = s.PendingMode == PendingMode.PrintedFalse ? 1 : 0;
@@ -467,6 +470,7 @@ public sealed class MainForm : Form
         s.Collection = _txtCollection.Text.Trim();
         s.StationId = _cboStationId.Text.Trim();
         s.StationField = _txtStationField.Text.Trim();
+        s.AcceptUnassigned = _chkAcceptUnassigned.Checked;
         s.PendingMode = _cboPending.SelectedIndex == 1 ? PendingMode.PrintedFalse : PendingMode.StatusPending;
         s.ConnectionMode = _cboConnMode.SelectedIndex == 1 ? ConnectionMode.Polling : ConnectionMode.Realtime;
         s.PollIntervalSeconds = (int)_numPoll.Value;
@@ -663,7 +667,7 @@ public sealed class MainForm : Form
 
     private static bool ConnectionChanged(AppSettings a, AppSettings b) =>
         a.CredentialPath != b.CredentialPath || a.ProjectId != b.ProjectId || a.DatabaseId != b.DatabaseId ||
-        a.Collection != b.Collection || a.StationId != b.StationId || a.StationField != b.StationField ||
+        a.Collection != b.Collection || a.StationId != b.StationId || a.StationField != b.StationField || a.AcceptUnassigned != b.AcceptUnassigned ||
         a.PendingMode != b.PendingMode || a.ConnectionMode != b.ConnectionMode || a.PollIntervalSeconds != b.PollIntervalSeconds ||
         a.FieldTicketCode != b.FieldTicketCode || a.FieldTitle != b.FieldTitle || a.FieldFullName != b.FieldFullName ||
         a.FieldPosition != b.FieldPosition || a.FieldOrganization != b.FieldOrganization || a.FieldCategory != b.FieldCategory;
