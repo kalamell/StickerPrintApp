@@ -103,6 +103,12 @@ public sealed class AppSettings
     /// <summary>Centre name/position/organization vertically instead of stacking them from the top.</summary>
     public bool CenterVertically { get; set; }
 
+    /// <summary>Name size multiplier (0.3–1.0) applied after fitting.</summary>
+    public double NameScale { get; set; } = 0.85;
+
+    /// <summary>Category band at the bottom edge (true) or directly under the text (false).</summary>
+    public bool CategoryAtBottom { get; set; } = true;
+
     [JsonIgnore]
     public static string Folder { get; } =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "StickerPrintApp");

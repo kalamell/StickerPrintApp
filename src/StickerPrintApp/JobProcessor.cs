@@ -64,7 +64,7 @@ public sealed class JobProcessor
                 }
 
                 Update(job, JobState.Printing, $"กำลังพิมพ์ที่ {PrinterLabel(s)}");
-                StickerPrinter.Print(job, s, s.Copies);
+                StickerPrinter.Print(job, s, s.Copies, Log);
 
                 if (!job.IsReprint && !job.IsTest)
                     _printedLog.Add(job.DocumentId);

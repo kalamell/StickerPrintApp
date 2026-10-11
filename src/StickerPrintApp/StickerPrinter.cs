@@ -9,7 +9,7 @@ public static class StickerPrinter
         PrinterSettings.InstalledPrinters.Cast<string>().ToList();
 
     /// <summary>Prints <paramref name="copies"/> stickers synchronously (call from a background thread).</summary>
-    public static void Print(PrintJob job, AppSettings s, int copies)
+    public static void Print(PrintJob job, AppSettings s, int copies, Action<string>? warn = null)
     {
         if (s.PrinterConnection == PrinterConnection.SerialPort)
         {
@@ -37,6 +37,7 @@ public static class StickerPrinter
         doc.OriginAtMargins = false;
 
         var remaining = Math.Max(1, copies);
+        var warned = false;
         doc.PrintPage += (_, e) =>
         {
             var g = e.Graphics!;
@@ -46,6 +47,24 @@ public static class StickerPrinter
             g.TranslateTransform(
                 (float)(s.OffsetXMm - e.PageSettings.HardMarginX * 0.254),
                 (float)(s.OffsetYMm - e.PageSettings.HardMarginY * 0.254));
+
+            // If the driver's page is smaller than the configured sticker (it ignored our paper size),
+            // shrink to fit so the bottom (category band) is not cut off, and say so in the log.
+            var want = StickerRenderer.StickerSizeMm(s);
+            var pageW = e.PageBounds.Width * 0.254f;
+            var pageH = e.PageBounds.Height * 0.254f;
+            var fit = Math.Min(1f, Math.Min(pageW / want.Width, pageH / want.Height));
+            if (fit < 0.98f)
+            {
+                g.ScaleTransform(fit, fit);
+                if (!warned)
+                {
+                    warned = true;
+                    warn?.Invoke($"กระดาษในไดรเวอร์ {e.PageSettings.PaperSize.PaperName} มีขนาด {pageW:0.#} × {pageH:0.#} mm " +
+                                 $"เล็กกว่าที่ตั้งไว้ {want.Width:0.#} × {want.Height:0.#} mm — ย่อให้พอดี ({fit:P0}); " +
+                                 "แนะนำให้ตั้งขนาดสติกเกอร์ในไดรเวอร์ให้ตรงกัน");
+                }
+            }
 
             StickerRenderer.Draw(g, job, s);
 

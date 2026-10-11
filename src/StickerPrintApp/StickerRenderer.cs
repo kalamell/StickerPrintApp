@@ -82,13 +82,14 @@ public static class StickerRenderer
         var title = s.ShowTitle ? job.Title : "";
         var nameLines = ChooseNameLines(g, title, job.FullName, family, area.Width,
             bottom - top - (detailsH > 0 ? detailsH + gap : 0), (float)s.NameLineSpacing, out var nameEm);
-        // Keep very short names from dwarfing everything else.
-        nameEm = Math.Min(nameEm, full * 0.26f);
+        // Cap short names so they don't dwarf everything else, then apply the user's name size.
+        nameEm = Math.Min(nameEm, full * 0.24f) * (float)Math.Clamp(s.NameScale, 0.3, 1.0);
         var nameH = nameLines.Length == 0 ? 0 : BlockHeight(nameEm, nameLines.Length, (float)s.NameLineSpacing, nameLines);
 
         // Stack name + details; optionally centre the group in the free space.
         var groupH = nameH + (nameH > 0 && detailsH > 0 ? gap : 0) + detailsH;
         var y = s.CenterVertically ? top + Math.Max(0, (bottom - top - groupH) / 2) : top;
+        var groupEnd = y + groupH;
 
         var state = g.Save();
         g.SetClip(new RectangleF(area.Left - pad, area.Top - pad, area.Width + 2 * pad, bottom - area.Top + pad));
@@ -110,7 +111,10 @@ public static class StickerRenderer
         // 5. Category band last, so nothing can paint over it.
         if (hasCategory)
         {
-            var band = new RectangleF(area.Left, area.Bottom - bandH, area.Width, bandH);
+            // Pinned to the bottom edge, or directly under the text (survives a label that is shorter
+            // than configured).
+            var bandTop = s.CategoryAtBottom ? area.Bottom - bandH : Math.Min(groupEnd + gap, area.Bottom - bandH);
+            var band = new RectangleF(area.Left, bandTop, area.Width, bandH);
             var brush = Brushes.Black;
             if (s.CategoryInverted)
             {

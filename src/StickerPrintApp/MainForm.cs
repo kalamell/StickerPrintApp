@@ -88,6 +88,8 @@ public sealed class MainForm : Form
     private readonly CheckBox _chkShowCategory = new() { Text = "แสดง Category", AutoSize = true };
     private readonly CheckBox _chkInverted = new() { Text = "Category แบบแถบดำ ตัวอักษรขาว", AutoSize = true };
     private readonly NumericUpDown _numNameSpacing = new() { Minimum = 0.8m, Maximum = 2m, Increment = 0.05m, DecimalPlaces = 2, Width = 80 };
+    private readonly NumericUpDown _numNameScale = new() { Minimum = 30, Maximum = 100, Increment = 5, Width = 80 };
+    private readonly CheckBox _chkCategoryBottom = new() { Text = "แถบ Category ชิดขอบล่าง (ไม่ติ๊ก = ต่อใต้ข้อความ)", AutoSize = true };
     private readonly CheckBox _chkCenter = new() { Text = "จัดกลุ่มข้อความไว้กึ่งกลางแนวตั้ง (ไม่ติ๊ก = ชิดบน)", AutoSize = true };
     private readonly CheckBox _chkBorder = new() { Text = "มีกรอบรอบสติกเกอร์", AutoSize = true };
     private readonly Button _btnSave = new() { Text = "บันทึกการตั้งค่า", AutoSize = true, Padding = new Padding(12, 4, 12, 4) };
@@ -249,7 +251,9 @@ public sealed class MainForm : Form
             ("", _chkShowCategory),
             ("", _chkInverted),
             ("", _chkBorder),
+            ("ขนาดชื่อ-นามสกุล (%)", _numNameScale),
             ("ระยะห่างบรรทัดชื่อ (เท่าของขนาดตัวอักษร)", _numNameSpacing),
+            ("", _chkCategoryBottom),
             ("", _chkCenter)));
 
         flow.Controls.Add(_btnSave);
@@ -361,6 +365,8 @@ public sealed class MainForm : Form
             _chkBorder.Checked = s.BorderFrame;
             _numNameSpacing.Value = Clamp(_numNameSpacing, s.NameLineSpacing);
             _chkCenter.Checked = s.CenterVertically;
+            _numNameScale.Value = Math.Clamp((decimal)Math.Round(s.NameScale * 100), _numNameScale.Minimum, _numNameScale.Maximum);
+            _chkCategoryBottom.Checked = s.CategoryAtBottom;
 
             ShowAccountInfo();
         }
@@ -523,6 +529,8 @@ public sealed class MainForm : Form
         s.BorderFrame = _chkBorder.Checked;
         s.NameLineSpacing = (double)_numNameSpacing.Value;
         s.CenterVertically = _chkCenter.Checked;
+        s.NameScale = (double)_numNameScale.Value / 100;
+        s.CategoryAtBottom = _chkCategoryBottom.Checked;
     }
 
     private static decimal Clamp(NumericUpDown n, double v) => Math.Clamp((decimal)v, n.Minimum, n.Maximum);
@@ -605,7 +613,7 @@ public sealed class MainForm : Form
             _cboPrinter, _cboSize, _numW, _numH, _chkLandscape, _numPad, _numOffX, _numOffY, _numCopies,
             _cboRawLang, _cboDpi, _numGap, _cboBaud, _chkRotate180,
             _cboFont, _chkShowTicket, _chkShowTitle, _chkShowPosition, _chkShowOrganization, _chkShowCategory,
-            _chkInverted, _chkBorder, _numNameSpacing, _chkCenter,
+            _chkInverted, _chkBorder, _numNameSpacing, _chkCenter, _numNameScale, _chkCategoryBottom,
         ];
         foreach (var c in live)
         {
