@@ -100,7 +100,7 @@ public static class StickerRenderer
 
             if (twoLines > oneLine * 1.15f)
             {
-                using var font = new Font(family, twoLines, FontStyle.Bold, GraphicsUnit.World);
+                using var font = FontManager.Create(family, twoLines, FontStyle.Bold, GraphicsUnit.World);
                 var top = new RectangleF(area.Left, area.Top, area.Width, area.Height / 2);
                 var bottom = new RectangleF(area.Left, area.Top + area.Height / 2, area.Width, area.Height / 2);
                 DrawText(g, first, font, top, Brushes.Black);
@@ -109,7 +109,7 @@ public static class StickerRenderer
             }
         }
 
-        using (var font = new Font(family, oneLine, FontStyle.Bold, GraphicsUnit.World))
+        using (var font = FontManager.Create(family, oneLine, FontStyle.Bold, GraphicsUnit.World))
             DrawText(g, full, font, area, Brushes.Black);
     }
 
@@ -117,7 +117,7 @@ public static class StickerRenderer
         StringAlignment align = StringAlignment.Center)
     {
         var size = FitSize(g, text, family, style, box.Size);
-        using var font = new Font(family, size, style, GraphicsUnit.World);
+        using var font = FontManager.Create(family, size, style, GraphicsUnit.World);
         DrawText(g, text, font, box, brush, align);
     }
 
@@ -141,7 +141,7 @@ public static class StickerRenderer
         var size = box.Height / 1.35f;
         for (var i = 0; i < 4 && size > 0.5f; i++)
         {
-            using var font = new Font(family, size, style, GraphicsUnit.World);
+            using var font = FontManager.Create(family, size, style, GraphicsUnit.World);
             var measured = g.MeasureString(text, font, PointF.Empty, StringFormat.GenericTypographic);
             var lineH = font.GetHeight(g);
             var scale = Math.Min(box.Width / Math.Max(measured.Width, 0.01f), box.Height / Math.Max(lineH, 0.01f));

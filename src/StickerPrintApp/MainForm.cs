@@ -1,5 +1,4 @@
 using System.Drawing;
-using System.Drawing.Text;
 using System.Text.Json;
 
 namespace StickerPrintApp;
@@ -75,6 +74,7 @@ public sealed class MainForm : Form
 
     // Settings: layout
     private readonly ComboBox _cboFont = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240 };
+    private readonly Button _btnAddFont = new() { Text = "เพิ่มไฟล์ฟอนต์...", AutoSize = true };
     private readonly CheckBox _chkShowTicket = new() { Text = "แสดง Ticket code", AutoSize = true };
     private readonly CheckBox _chkShowTitle = new() { Text = "แสดงคำนำหน้า (Title) หน้าชื่อ", AutoSize = true };
     private readonly CheckBox _chkShowPosition = new() { Text = "แสดงตำแหน่ง (Position)", AutoSize = true };
@@ -227,7 +227,8 @@ public sealed class MainForm : Form
             ("จำนวนต่อคน", _numCopies)));
 
         flow.Controls.Add(Group("รูปแบบ",
-            ("ฟอนต์", _cboFont),
+            ("ฟอนต์", Row(_cboFont, _btnAddFont)),
+            ("", new Label { AutoSize = true, ForeColor = Color.DimGray, Text = "มี IBM Plex Sans Thai ในตัวแล้ว ไม่ต้องติดตั้ง; ฟอนต์อื่นเลือกไฟล์ .ttf/.otf หรือวางในโฟลเดอร์ fonts ข้าง .exe" }),
             ("", _chkShowTicket),
             ("", _chkShowTitle),
             ("", _chkShowPosition),
@@ -320,13 +321,7 @@ public sealed class MainForm : Form
             _numOffY.Value = Clamp(_numOffY, s.OffsetYMm);
             _numCopies.Value = Clamp(_numCopies, s.Copies);
 
-            _cboFont.Items.Clear();
-            using (var fonts = new InstalledFontCollection())
-                foreach (var f in fonts.Families)
-                    _cboFont.Items.Add(f.Name);
-            if (!_cboFont.Items.Contains(s.FontFamily))
-                _cboFont.Items.Insert(0, s.FontFamily);
-            _cboFont.SelectedItem = s.FontFamily;
+            LoadFonts(s.FontFamily);
 
             _chkShowTicket.Checked = s.ShowTicketCode;
             _chkShowTitle.Checked = s.ShowTitle;
@@ -364,6 +359,45 @@ public sealed class MainForm : Form
         _cboPrinter.SelectedItem = string.IsNullOrEmpty(current) ? DefaultPrinterLabel : current;
     }
 
+    private void LoadFonts(string selected)
+    {
+        _cboFont.Items.Clear();
+        foreach (var name in FontManager.AllFamilyNames())
+            _cboFont.Items.Add(name);
+        if (!_cboFont.Items.Contains(selected))
+            _cboFont.Items.Insert(0, selected); // keep the saved choice visible even if missing on this PC
+        _cboFont.SelectedItem = selected;
+    }
+
+    private void AddFontFile()
+    {
+        using var dlg = new OpenFileDialog
+        {
+            Title = "เลือกไฟล์ฟอนต์",
+            Filter = "Font (*.ttf;*.otf)|*.ttf;*.otf",
+            Multiselect = true,
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        var last = "";
+        foreach (var file in dlg.FileNames)
+        {
+            try
+            {
+                last = FontManager.ImportFile(file);
+                LogLine($"เพิ่มฟอนต์ {last} ({Path.GetFileName(file)})");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"{Path.GetFileName(file)}: {ex.Message}", "เพิ่มฟอนต์ไม่สำเร็จ", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        if (last.Length > 0)
+            LoadFonts(last); // SelectedIndexChanged → live preview
+    }
+
     private void ReadControlsIntoSettings()
     {
         var s = _settings;
@@ -398,7 +432,7 @@ public sealed class MainForm : Form
         s.OffsetYMm = (double)_numOffY.Value;
         s.Copies = (int)_numCopies.Value;
 
-        s.FontFamily = _cboFont.SelectedItem as string ?? "Tahoma";
+        s.FontFamily = _cboFont.SelectedItem as string ?? FontManager.DefaultFamily;
         s.ShowTicketCode = _chkShowTicket.Checked;
         s.ShowTitle = _chkShowTitle.Checked;
         s.ShowPosition = _chkShowPosition.Checked;
@@ -468,6 +502,7 @@ public sealed class MainForm : Form
         _btnBrowse.Click += (_, _) => BrowseCredential();
         _txtCred.TextChanged += (_, _) => ShowAccountInfo();
         _btnRefreshPrinters.Click += (_, _) => LoadPrinters();
+        _btnAddFont.Click += (_, _) => AddFontFile();
 
         _cboSize.SelectedIndexChanged += (_, _) =>
         {

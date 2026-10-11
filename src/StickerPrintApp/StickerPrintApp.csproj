@@ -14,6 +14,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Bundled so every station renders identically without installing fonts (SIL OFL 1.1, see Fonts/OFL.txt). -->
+    <EmbeddedResource Include="Fonts\*.ttf" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Google.Cloud.Firestore" Version="4.5.0" />
   </ItemGroup>
 

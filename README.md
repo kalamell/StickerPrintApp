@@ -16,6 +16,13 @@
 เปลี่ยนชื่อฟิลด์ได้ในแท็บ **ตั้งค่า → Field mapping** และเปิด/ปิดแต่ละบรรทัดได้ในหัวข้อ **รูปแบบ**
 ขนาดตัวอักษรจะปรับอัตโนมัติให้พอดีกับขนาดสติกเกอร์ และรองรับภาษาไทย
 
+### ฟอนต์
+
+- ฝังฟอนต์ **IBM Plex Sans Thai** (Regular + Bold) ไว้ในโปรแกรมแล้ว และเป็นค่าเริ่มต้น ทุก Station พิมพ์ออกมาเหมือนกันโดยไม่ต้องติดตั้งฟอนต์
+- ใช้ฟอนต์อื่นได้ 3 วิธี: ติดตั้งใน Windows, กด **เพิ่มไฟล์ฟอนต์...** ในแท็บตั้งค่า (คัดลอกไปเก็บที่ `%AppData%\StickerPrintApp\fonts`) หรือวางไฟล์ `.ttf`/`.otf` ในโฟลเดอร์ `fonts` ข้าง `.exe`
+- ถ้าฟอนต์มีแค่น้ำหนักเดียว (เช่นมีแค่ `IBMPlexSansThai-Bold.ttf`) ทุกบรรทัดจะใช้น้ำหนักนั้น
+- IBM Plex Sans Thai ใช้สัญญาอนุญาต SIL Open Font License 1.1 (`src/StickerPrintApp/Fonts/OFL.txt`)
+
 ## Printer Station (1 PC = 1 Station)
 
 | เครื่อง | ตั้งค่า Printer Station # | ผลลัพธ์ |
@@ -82,5 +89,6 @@ dotnet publish src/StickerPrintApp -c Release -r win-x64 --self-contained -p:Pub
 | `JobProcessor.cs` | คิวพิมพ์ทีละงาน (claim → print → write back) |
 | `StickerRenderer.cs` | วาดเลย์เอาต์สติกเกอร์ (ใช้ทั้งพิมพ์จริงและ preview) |
 | `StickerPrinter.cs` | ส่งงานไปเครื่องพิมพ์ด้วยขนาดกระดาษที่กำหนด |
+| `FontManager.cs` | โหลดฟอนต์ที่ฝังไว้/ไฟล์ฟอนต์โดยไม่ต้องติดตั้ง |
 | `MainForm.cs` | หน้าจอหลัก / ตั้งค่า / preview |
 | `AppSettings.cs` | ค่าตั้งค่า (บันทึกใน `%AppData%`) |

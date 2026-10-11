@@ -14,6 +14,7 @@ internal static class Program
         }
 
         ApplicationConfiguration.Initialize();
+        FontManager.Initialize();
         Application.Run(new MainForm());
     }
 }

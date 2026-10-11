@@ -66,7 +66,7 @@ public sealed class AppSettings
     public bool AutoPrint { get; set; } = true;
 
     // --- Layout ---
-    public string FontFamily { get; set; } = "Tahoma";
+    public string FontFamily { get; set; } = FontManager.DefaultFamily;
     public bool ShowTicketCode { get; set; } = true;
     public bool ShowTitle { get; set; } = true;
     public bool ShowPosition { get; set; } = true;
