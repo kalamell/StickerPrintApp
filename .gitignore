@@ -1,0 +1,13 @@
+# Build output
+bin/
+obj/
+publish/
+.vs/
+*.user
+*.suo
+
+# NEVER commit Firebase / Google service account keys
+*service-account*.json
+campaign-th---game-*.json
+*.JSON
+credentials/
