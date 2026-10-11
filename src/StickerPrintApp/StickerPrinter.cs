@@ -11,6 +11,12 @@ public static class StickerPrinter
     /// <summary>Prints <paramref name="copies"/> stickers synchronously (call from a background thread).</summary>
     public static void Print(PrintJob job, AppSettings s, int copies)
     {
+        if (s.PrinterConnection == PrinterConnection.SerialPort)
+        {
+            RawPrinter.Print(job, s, copies);
+            return;
+        }
+
         using var doc = new PrintDocument();
         doc.PrintController = new StandardPrintController(); // no "Printing..." dialog
         doc.DocumentName = $"Sticker {job.DocumentId}";
@@ -49,6 +55,10 @@ public static class StickerPrinter
 
         doc.Print();
     }
+
+    public static string Describe(AppSettings s) => s.PrinterConnection == PrinterConnection.SerialPort
+        ? $"{s.SerialPortName} ({(s.RawLanguage == RawLanguage.EscPos ? "ESC/POS" : "TSPL")})"
+        : string.IsNullOrWhiteSpace(s.PrinterName) ? "เครื่องพิมพ์ค่าเริ่มต้นของ Windows" : s.PrinterName;
 
     private static int MmToHundredthInch(double mm) => (int)Math.Round(mm / 25.4 * 100);
 

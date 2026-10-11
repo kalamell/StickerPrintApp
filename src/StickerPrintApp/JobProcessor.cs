@@ -115,8 +115,7 @@ public sealed class JobProcessor
         JobChanged?.Invoke(job);
     }
 
-    private static string PrinterLabel(AppSettings s) =>
-        string.IsNullOrWhiteSpace(s.PrinterName) ? "เครื่องพิมพ์ค่าเริ่มต้น" : s.PrinterName;
+    private static string PrinterLabel(AppSettings s) => StickerPrinter.Describe(s);
 }
 
 /// <summary>

@@ -13,6 +13,15 @@ public enum PendingMode
     PrintedFalse,
 }
 
+public enum PrinterConnection
+{
+    /// <summary>A printer installed in Windows (USB, network, or Bluetooth with a driver).</summary>
+    Windows,
+
+    /// <summary>Raw TSPL / ESC/POS to a COM port — Bluetooth SPP printers without a Windows driver.</summary>
+    SerialPort,
+}
+
 public enum ConnectionMode
 {
     /// <summary>Firestore realtime listener (gRPC streaming) — instant.</summary>
@@ -54,7 +63,17 @@ public sealed class AppSettings
     public string FieldCategory { get; set; } = "category";
 
     // --- Printer / sticker ---
+    public PrinterConnection PrinterConnection { get; set; } = PrinterConnection.Windows;
     public string PrinterName { get; set; } = "";
+
+    // COM-port (Bluetooth) printing
+    public string SerialPortName { get; set; } = "";
+    public int SerialBaudRate { get; set; } = 9600;
+    public RawLanguage RawLanguage { get; set; } = RawLanguage.Tspl;
+    public int PrinterDpi { get; set; } = 203;
+    public double LabelGapMm { get; set; } = 2;
+    public bool Rotate180 { get; set; }
+
     public string StickerSizeName { get; set; } = "90 x 54 mm (นามบัตร)";
     public double StickerWidthMm { get; set; } = 90;
     public double StickerHeightMm { get; set; } = 54;

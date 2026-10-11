@@ -63,6 +63,11 @@ public sealed class MainForm : Form
     // Settings: printer & sticker
     private readonly ComboBox _cboPrinter = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300 };
     private readonly Button _btnRefreshPrinters = new() { Text = "รีเฟรช", AutoSize = true };
+    private readonly ComboBox _cboRawLang = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300 };
+    private readonly ComboBox _cboDpi = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 80 };
+    private readonly NumericUpDown _numGap = Num(0, 20, 0.5m);
+    private readonly ComboBox _cboBaud = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
+    private readonly CheckBox _chkRotate180 = new() { Text = "กลับหัว 180°", AutoSize = true };
     private readonly ComboBox _cboSize = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240 };
     private readonly NumericUpDown _numW = Num(10, 300, 1);
     private readonly NumericUpDown _numH = Num(10, 300, 1);
@@ -219,6 +224,10 @@ public sealed class MainForm : Form
 
         flow.Controls.Add(Group("เครื่องพิมพ์และขนาดสติกเกอร์",
             ("เครื่องพิมพ์", Row(_cboPrinter, _btnRefreshPrinters)),
+            ("", new Label { AutoSize = true, ForeColor = Color.DimGray, Text = "Bluetooth ที่ไม่มีไดรเวอร์: จับคู่ใน Windows แล้วเลือกรายการ \"Bluetooth / COM\" (ดู README)" }),
+            ("ภาษาเครื่องพิมพ์ (COM)", _cboRawLang),
+            ("ความละเอียด / ระยะห่างฉลาก", Row(_cboDpi, new Label { Text = "dpi   gap (mm)", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _numGap)),
+            ("Baud rate (COM)", Row(_cboBaud, _chkRotate180)),
             ("ขนาดสติกเกอร์", _cboSize),
             ("กว้าง × สูง (mm)", Row(_numW, new Label { Text = "×", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, _numH)),
             ("", _chkLandscape),
@@ -305,6 +314,19 @@ public sealed class MainForm : Form
             _txtFOrganization.Text = s.FieldOrganization;
             _txtFCategory.Text = s.FieldCategory;
 
+            _cboRawLang.Items.Clear();
+            _cboRawLang.Items.AddRange(["TSPL — เครื่องพิมพ์ฉลาก (TSC, Xprinter, Gprinter, HPRT)", "ESC/POS — เครื่องพิมพ์ใบเสร็จ/พกพา"]);
+            _cboRawLang.SelectedIndex = s.RawLanguage == RawLanguage.EscPos ? 1 : 0;
+            _cboDpi.Items.Clear();
+            _cboDpi.Items.AddRange(["203", "300"]);
+            _cboDpi.SelectedItem = s.PrinterDpi >= 300 ? "300" : "203";
+            _numGap.Value = Clamp(_numGap, s.LabelGapMm);
+            _cboBaud.Items.Clear();
+            _cboBaud.Items.AddRange(["9600", "19200", "38400", "57600", "115200"]);
+            _cboBaud.SelectedItem = s.SerialBaudRate.ToString();
+            if (_cboBaud.SelectedIndex < 0) _cboBaud.SelectedIndex = 0;
+            _chkRotate180.Checked = s.Rotate180;
+
             LoadPrinters();
 
             _cboSize.Items.Clear();
@@ -339,24 +361,62 @@ public sealed class MainForm : Form
         }
     }
 
+    /// <summary>An entry in the printer list: a Windows printer or a COM port.</summary>
+    private sealed record PrinterChoice(PrinterConnection Kind, string Name, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
     private void LoadPrinters()
     {
-        var current = _settings.PrinterName;
-        _cboPrinter.Items.Clear();
-        _cboPrinter.Items.Add(DefaultPrinterLabel);
+        var wasLoading = _loading;
+        _loading = true;
         try
         {
-            foreach (var p in StickerPrinter.InstalledPrinters())
-                _cboPrinter.Items.Add(p);
-        }
-        catch (Exception ex)
-        {
-            LogLine($"อ่านรายชื่อเครื่องพิมพ์ไม่สำเร็จ: {ex.Message}");
-        }
+            _cboPrinter.Items.Clear();
+            _cboPrinter.Items.Add(new PrinterChoice(PrinterConnection.Windows, "", DefaultPrinterLabel));
+            try
+            {
+                foreach (var p in StickerPrinter.InstalledPrinters())
+                    _cboPrinter.Items.Add(new PrinterChoice(PrinterConnection.Windows, p, p));
+            }
+            catch (Exception ex)
+            {
+                LogLine($"อ่านรายชื่อเครื่องพิมพ์ไม่สำเร็จ: {ex.Message}");
+            }
 
-        if (!string.IsNullOrEmpty(current) && !_cboPrinter.Items.Contains(current))
-            _cboPrinter.Items.Add(current); // keep the saved choice visible even if offline right now
-        _cboPrinter.SelectedItem = string.IsNullOrEmpty(current) ? DefaultPrinterLabel : current;
+            try
+            {
+                foreach (var port in RawPrinter.ListPorts())
+                    _cboPrinter.Items.Add(new PrinterChoice(PrinterConnection.SerialPort, port.Port, $"Bluetooth / COM: {port}"));
+            }
+            catch (Exception ex)
+            {
+                LogLine($"อ่านรายชื่อ COM port ไม่สำเร็จ: {ex.Message}");
+            }
+
+            var s = _settings;
+            var wanted = s.PrinterConnection == PrinterConnection.SerialPort
+                ? new PrinterChoice(PrinterConnection.SerialPort, s.SerialPortName, $"Bluetooth / COM: {s.SerialPortName} (ไม่พบตอนนี้)")
+                : new PrinterChoice(PrinterConnection.Windows, s.PrinterName, $"{s.PrinterName} (ไม่พบตอนนี้)");
+            var match = _cboPrinter.Items.Cast<PrinterChoice>().FirstOrDefault(c => c.Kind == wanted.Kind && c.Name == wanted.Name);
+            if (match is null && wanted.Name.Length > 0)
+                _cboPrinter.Items.Add(match = wanted); // keep the saved choice visible even if offline right now
+            _cboPrinter.SelectedItem = match ?? _cboPrinter.Items[0];
+        }
+        finally
+        {
+            _loading = wasLoading;
+        }
+        UpdatePrinterControls();
+    }
+
+    private void UpdatePrinterControls()
+    {
+        var serial = (_cboPrinter.SelectedItem as PrinterChoice)?.Kind == PrinterConnection.SerialPort;
+        foreach (var c in new Control[] { _cboRawLang, _cboDpi, _numGap, _cboBaud, _chkRotate180 })
+            c.Enabled = serial;
+        _numGap.Enabled = serial && _cboRawLang.SelectedIndex != 1;
     }
 
     private void LoadFonts(string selected)
@@ -421,8 +481,19 @@ public sealed class MainForm : Form
         s.FieldOrganization = _txtFOrganization.Text.Trim();
         s.FieldCategory = _txtFCategory.Text.Trim();
 
-        var printer = _cboPrinter.SelectedItem as string;
-        s.PrinterName = printer is null || printer == DefaultPrinterLabel ? "" : printer;
+        if (_cboPrinter.SelectedItem is PrinterChoice printer)
+        {
+            s.PrinterConnection = printer.Kind;
+            if (printer.Kind == PrinterConnection.SerialPort)
+                s.SerialPortName = printer.Name;
+            else
+                s.PrinterName = printer.Name;
+        }
+        s.RawLanguage = _cboRawLang.SelectedIndex == 1 ? RawLanguage.EscPos : RawLanguage.Tspl;
+        s.PrinterDpi = int.TryParse(_cboDpi.SelectedItem as string, out var dpi) ? dpi : 203;
+        s.LabelGapMm = (double)_numGap.Value;
+        s.SerialBaudRate = int.TryParse(_cboBaud.SelectedItem as string, out var baud) ? baud : 9600;
+        s.Rotate180 = _chkRotate180.Checked;
         s.StickerSizeName = (_cboSize.SelectedItem as StickerSize)?.Name ?? StickerSize.CustomName;
         s.StickerWidthMm = (double)_numW.Value;
         s.StickerHeightMm = (double)_numH.Value;
@@ -520,6 +591,7 @@ public sealed class MainForm : Form
         Control[] live =
         [
             _cboPrinter, _cboSize, _numW, _numH, _chkLandscape, _numPad, _numOffX, _numOffY, _numCopies,
+            _cboRawLang, _cboDpi, _numGap, _cboBaud, _chkRotate180,
             _cboFont, _chkShowTicket, _chkShowTitle, _chkShowPosition, _chkShowOrganization, _chkShowCategory,
             _chkInverted, _chkBorder,
         ];
@@ -538,6 +610,7 @@ public sealed class MainForm : Form
     private void OnLiveSettingChanged()
     {
         if (_loading) return;
+        UpdatePrinterControls();
         ReadControlsIntoSettings();
         RefreshPreview();
     }
@@ -769,7 +842,7 @@ public sealed class MainForm : Form
     {
         var job = _grid.SelectedRows.Count > 0 && _grid.SelectedRows[0].Tag is PrintJob selected ? selected : PrintJob.Sample();
         var size = StickerRenderer.StickerSizeMm(_settings);
-        _lblPreviewInfo.Text = $"{size.Width:0.#} × {size.Height:0.#} mm  →  {(string.IsNullOrEmpty(_settings.PrinterName) ? DefaultPrinterLabel : _settings.PrinterName)}"
+        _lblPreviewInfo.Text = $"{size.Width:0.#} × {size.Height:0.#} mm  →  {StickerPrinter.Describe(_settings)}"
                                + (job.IsTest ? "\n(ข้อมูลตัวอย่าง)" : $"\n{job.DocumentId}");
 
         var box = _preview.ClientSize;
