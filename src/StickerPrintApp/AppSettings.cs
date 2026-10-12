@@ -76,6 +76,11 @@ public sealed class AppSettings
 
     public List<PrinterProfile> Printers { get; set; } = [];
 
+    /// <summary>Version of the built-in default layout the saved layouts were last upgraded to.</summary>
+    public int LayoutDefaultsVersion { get; set; }
+
+    private const int CurrentLayoutDefaultsVersion = 2;
+
     /// <summary>Unknown properties, e.g. single-printer settings from older versions (migrated on load).</summary>
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? Legacy { get; set; }
@@ -151,6 +156,16 @@ public sealed class AppSettings
         if (fresh && Legacy is { Count: > 0 })
             MigrateLegacy(Printers[0]);
         Legacy = null;
+
+        if (LayoutDefaultsVersion < 2)
+        {
+            foreach (var p in Printers)
+            {
+                var content = StickerRenderer.StickerSizeMm(p);
+                p.Layout.UpgradeFromV1Defaults(content.Width, content.Height);
+            }
+        }
+        LayoutDefaultsVersion = CurrentLayoutDefaultsVersion;
     }
 
     private void MigrateLegacy(PrinterProfile p)

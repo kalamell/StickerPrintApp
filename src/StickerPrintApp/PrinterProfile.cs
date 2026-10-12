@@ -62,9 +62,9 @@ public sealed class StickerLayout
         var l = new StickerLayout
         {
             Name = new TextElement { X = 7, Y = 7.3, FontSizePt = 16, Bold = true, Uppercase = true, LineSpacing = 1.22, MaxWidthMm = 76 },
-            Position = new TextElement { X = 7, Y = 22.6, FontSizePt = 8.5 },
-            Organization = new TextElement { X = 7, Y = 26.5, FontSizePt = 8.5 },
-            Qr = new QrElement { X = 7, Y = 35, SizeMm = 15.5 },
+            Position = new TextElement { X = 7, Y = 20.4, FontSizePt = 8.5 },
+            Organization = new TextElement { X = 7, Y = 24.3, FontSizePt = 8.5 },
+            Qr = new QrElement { X = 7, Y = 29, SizeMm = 21.5 },
             TicketCode = new TextElement { Visible = false, X = 83, Y = 4, FontSizePt = 7, Align = TextAlign.Right },
             Category = new TextElement { Visible = false, X = 83, Y = 46, FontSizePt = 9, Bold = true, Align = TextAlign.Right },
         };
@@ -92,6 +92,27 @@ public sealed class StickerLayout
     }
 
     public IEnumerable<TextElement> TextElements() => [Name, Position, Organization, TicketCode, Category];
+
+    /// <summary>
+    /// Moves position/organization/QR from the first default design to the current one, but only if
+    /// they are still exactly where that first default put them (i.e. the user has not adjusted them).
+    /// </summary>
+    public void UpgradeFromV1Defaults(double widthMm, double heightMm)
+    {
+        var sx = widthMm / 90.0;
+        var sy = heightMm / 54.0;
+        var s = Math.Min(sx, sy);
+        static bool Near(double a, double b) => Math.Abs(a - b) < 0.11;
+        if (!Near(Position.Y, Math.Round(22.6 * sy, 1)) || !Near(Organization.Y, Math.Round(26.5 * sy, 1)) ||
+            !Near(Qr.Y, Math.Round(35 * sy, 1)) || !Near(Qr.SizeMm, Math.Round(15.5 * s, 1)))
+            return;
+
+        var current = CreateDefault(widthMm, heightMm);
+        Position.Y = current.Position.Y;
+        Organization.Y = current.Organization.Y;
+        Qr.Y = current.Qr.Y;
+        Qr.SizeMm = current.Qr.SizeMm;
+    }
 }
 
 /// <summary>One printer slot. Jobs whose printerId equals <see cref="Id"/> are printed here.</summary>
