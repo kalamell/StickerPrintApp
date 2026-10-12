@@ -9,11 +9,11 @@ public static class StickerPrinter
         PrinterSettings.InstalledPrinters.Cast<string>().ToList();
 
     /// <summary>Prints <paramref name="copies"/> stickers synchronously (call from a background thread).</summary>
-    public static void Print(PrintJob job, AppSettings s, int copies, Action<string>? warn = null)
+    public static void Print(PrintJob job, PrinterProfile s, string fontFamily, int copies, Action<string>? warn = null)
     {
-        if (s.PrinterConnection == PrinterConnection.SerialPort)
+        if (s.Connection == PrinterConnection.SerialPort)
         {
-            RawPrinter.Print(job, s, copies);
+            RawPrinter.Print(job, s, fontFamily, copies);
             return;
         }
 
@@ -66,7 +66,7 @@ public static class StickerPrinter
                 }
             }
 
-            StickerRenderer.Draw(g, job, s);
+            StickerRenderer.Draw(g, job, s, fontFamily);
 
             remaining--;
             e.HasMorePages = remaining > 0;
@@ -75,7 +75,7 @@ public static class StickerPrinter
         doc.Print();
     }
 
-    public static string Describe(AppSettings s) => s.PrinterConnection == PrinterConnection.SerialPort
+    public static string Describe(PrinterProfile s) => s.Connection == PrinterConnection.SerialPort
         ? $"{s.SerialPortName} ({(s.RawLanguage == RawLanguage.EscPos ? "ESC/POS" : "TSPL")})"
         : string.IsNullOrWhiteSpace(s.PrinterName) ? "เครื่องพิมพ์ค่าเริ่มต้นของ Windows" : s.PrinterName;
 

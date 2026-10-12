@@ -28,9 +28,7 @@ public sealed class FirestoreJobSource
 
     public string Description =>
         $"{_settings.ProjectId}/{_settings.Collection}" +
-        (HasStationFilter
-            ? $" ({_settings.StationField} = {_settings.StationId}{(_settings.AcceptUnassigned ? " หรือไม่ระบุ" : "")})"
-            : "") +
+        $" (printer {string.Join(", ", _settings.Printers.Where(p => p.Enabled).Select(p => p.Id))})" +
         (_settings.ConnectionMode == ConnectionMode.Polling ? " [Polling]" : "");
 
     /// <summary>Connects and keeps listening, reconnecting with back-off, until <paramref name="ct"/> is cancelled.</summary>
@@ -81,12 +79,12 @@ public sealed class FirestoreJobSource
             }
 
             // A job re-enters the query (ChangeType.Added) whenever it becomes unprinted again,
-            // which is how a reprint can be requested from the backend. Modified covers a job that is
-            // (re)assigned to this station while still pending.
+            // which is how a reprint can be requested from the backend. Modified covers a job whose
+            // printerId changes to one of ours while still pending.
             foreach (var change in snapshot.Changes)
             {
                 var id = change.Document.Id;
-                if (change.ChangeType == DocumentChange.Type.Removed || !IsForThisStation(change.Document))
+                if (change.ChangeType == DocumentChange.Type.Removed || !IsForThisPc(change.Document))
                     emitted.Remove(id);
                 else if (emitted.Add(id))
                     Emit(change.Document);
@@ -129,7 +127,7 @@ public sealed class FirestoreJobSource
 
             // Only report documents that newly appeared, mirroring the listener's "Added" events.
             var current = new HashSet<string>();
-            foreach (var doc in snapshot.Documents.Where(IsForThisStation))
+            foreach (var doc in snapshot.Documents.Where(IsForThisPc))
             {
                 current.Add(doc.Id);
                 if (!previous.Contains(doc.Id))
@@ -182,51 +180,53 @@ public sealed class FirestoreJobSource
             ? q.WhereEqualTo("printed", false)
             : q.WhereEqualTo("status", StatusPending);
 
-        // With unassigned jobs accepted, station filtering happens client-side (IsForThisStation),
-        // because Firestore cannot query for a missing field. Only pending jobs are read, so this is cheap.
-        if (HasStationFilter && !_settings.AcceptUnassigned)
-        {
-            var id = _settings.StationId.Trim();
-            // The backend may store the station as a number (1) or a string ("1"); match both.
-            q = long.TryParse(id, out var number)
-                ? q.WhereIn(_settings.StationField, new object[] { number, id })
-                : q.WhereEqualTo(_settings.StationField, id);
-        }
+        // Routing by printerId happens client-side (IsForThisPc): Firestore cannot query for a missing
+        // field, and only pending jobs are read, so this is cheap.
         return q;
     }
 
-    private bool HasStationFilter =>
-        !string.IsNullOrWhiteSpace(_settings.StationField) && !string.IsNullOrWhiteSpace(_settings.StationId);
+    private readonly HashSet<string> _ignored = [];
 
-    /// <summary>
-    /// True if the job names this station, or names no station at all (when unassigned jobs are accepted;
-    /// every station then competes and the transactional claim makes sure only one prints it).
-    /// </summary>
-    private bool IsForThisStation(DocumentSnapshot doc)
+    private bool IsForThisPc(DocumentSnapshot doc)
     {
-        if (!HasStationFilter || !_settings.AcceptUnassigned)
-            return true; // already filtered by the query
+        var printerId = ReadField(doc.ToDictionary(), _settings.PrinterIdField);
+        if (_settings.ResolvePrinter(printerId) != 0)
+            return true;
 
-        var value = ReadField(doc.ToDictionary(), _settings.StationField);
-        return value.Length == 0 || string.Equals(value, _settings.StationId.Trim(), StringComparison.OrdinalIgnoreCase);
+        lock (_ignored)
+        {
+            if (_ignored.Add(doc.Id))
+                Log?.Invoke(printerId.Length == 0
+                    ? $"ข้าม job {doc.Id}: ไม่มี {_settings.PrinterIdField} และตั้งค่าไว้ว่าไม่พิมพ์งานที่ไม่ระบุเครื่อง"
+                    : $"ข้าม job {doc.Id}: {_settings.PrinterIdField} = {printerId} ไม่ได้เปิดใช้ในเครื่องนี้");
+        }
+        return false;
     }
 
     private PrintJob ToJob(DocumentSnapshot doc)
     {
         var data = doc.ToDictionary();
+        var first = ReadField(data, _settings.FieldFirstName);
+        var last = ReadField(data, _settings.FieldLastName);
         var fullName = ReadField(data, _settings.FieldFullName);
         if (fullName.Length == 0)
-            fullName = $"{ReadField(data, "first_name")} {ReadField(data, "last_name")}".Trim();
+            fullName = $"{first} {last}".Trim();
+        var printerId = ReadField(data, _settings.PrinterIdField);
 
         return new PrintJob
         {
             DocumentId = doc.Id,
             TicketCode = ReadField(data, _settings.FieldTicketCode),
             Title = ReadField(data, _settings.FieldTitle),
+            FirstName = first,
+            LastName = last,
             FullName = fullName,
             Position = ReadField(data, _settings.FieldPosition),
             Organization = ReadField(data, _settings.FieldOrganization),
             Category = ReadField(data, _settings.FieldCategory),
+            QrData = ReadField(data, _settings.FieldQr),
+            PrinterId = printerId,
+            ProfileId = _settings.ResolvePrinter(printerId),
         };
     }
 
@@ -259,10 +259,10 @@ public sealed class FirestoreJobSource
     /// Atomically marks the job as "printing" so that two stations / app instances never print the
     /// same job. Returns false if it is no longer pending (already printed or taken by someone else).
     /// </summary>
-    public async Task<bool> TryClaimAsync(string documentId, CancellationToken ct)
+    public async Task<bool> TryClaimAsync(PrintJob job, CancellationToken ct)
     {
         var db = _db ?? throw new InvalidOperationException("ยังไม่ได้เชื่อมต่อ Firestore");
-        var docRef = db.Collection(_settings.Collection).Document(documentId);
+        var docRef = db.Collection(_settings.Collection).Document(job.DocumentId);
 
         return await db.RunTransactionAsync(async tx =>
         {
@@ -274,7 +274,7 @@ public sealed class FirestoreJobSource
             {
                 ["status"] = StatusPrinting,
                 ["printing_by"] = Environment.MachineName,
-                ["printing_station"] = _settings.StationId,
+                ["printing_printer"] = job.ProfileId,
                 ["printing_at"] = FieldValue.ServerTimestamp,
             });
             return true;
@@ -291,19 +291,19 @@ public sealed class FirestoreJobSource
         return !printed && status is not (StatusPrinting or StatusPrinted);
     }
 
-    public Task MarkPrintedAsync(string documentId, string printer, CancellationToken ct) =>
-        UpdateAsync(documentId, new Dictionary<string, object>
+    public Task MarkPrintedAsync(PrintJob job, string printer, CancellationToken ct) =>
+        UpdateAsync(job.DocumentId, new Dictionary<string, object>
         {
             ["printed"] = true,
             ["status"] = StatusPrinted,
             ["printed_at"] = FieldValue.ServerTimestamp,
             ["printed_by"] = Environment.MachineName,
-            ["printed_station"] = _settings.StationId,
+            ["printed_printer"] = job.ProfileId,
             ["printer"] = printer,
         }, ct);
 
-    public Task MarkErrorAsync(string documentId, string message, CancellationToken ct) =>
-        UpdateAsync(documentId, new Dictionary<string, object>
+    public Task MarkErrorAsync(PrintJob job, string message, CancellationToken ct) =>
+        UpdateAsync(job.DocumentId, new Dictionary<string, object>
         {
             ["status"] = StatusError,
             ["error_message"] = message,

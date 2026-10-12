@@ -55,12 +55,12 @@ public static class RawPrinter
             .ToList();
     }
 
-    public static void Print(PrintJob job, AppSettings s, int copies)
+    public static void Print(PrintJob job, PrinterProfile s, string fontFamily, int copies)
     {
         if (string.IsNullOrWhiteSpace(s.SerialPortName))
             throw new InvalidOperationException("ยังไม่ได้เลือก COM port ของเครื่องพิมพ์");
 
-        using var bmp = RenderMonochrome(job, s);
+        using var bmp = RenderMonochrome(job, s, fontFamily);
         var data = s.RawLanguage == RawLanguage.EscPos
             ? BuildEscPos(bmp, Math.Max(1, copies))
             : BuildTspl(bmp, s, Math.Max(1, copies));
@@ -68,7 +68,7 @@ public static class RawPrinter
     }
 
     /// <summary>Renders the sticker at printer resolution in its physical feed orientation (W × H as configured).</summary>
-    private static Bitmap RenderMonochrome(PrintJob job, AppSettings s)
+    private static Bitmap RenderMonochrome(PrintJob job, PrinterProfile s, string fontFamily)
     {
         var dotsPerMm = Math.Max(s.PrinterDpi, 100) / 25.4f;
         var content = StickerRenderer.StickerSizeMm(s);
@@ -83,7 +83,7 @@ public static class RawPrinter
             g.PageUnit = GraphicsUnit.Pixel;
             g.ScaleTransform(dotsPerMm, dotsPerMm);
             g.TranslateTransform((float)s.OffsetXMm, (float)s.OffsetYMm, MatrixOrder.Prepend);
-            StickerRenderer.Draw(g, job, s);
+            StickerRenderer.Draw(g, job, s, fontFamily);
         }
 
         if (s.Landscape)
@@ -128,7 +128,7 @@ public static class RawPrinter
         return packed;
     }
 
-    private static byte[] BuildTspl(Bitmap bmp, AppSettings s, int copies)
+    private static byte[] BuildTspl(Bitmap bmp, PrinterProfile s, int copies)
     {
         // In TSPL BITMAP data a 0 bit prints a dot.
         var bits = Pack(bmp, out var widthBytes, blackBit: false);
@@ -172,7 +172,7 @@ public static class RawPrinter
         return ms.ToArray();
     }
 
-    private static void Send(AppSettings s, byte[] data)
+    private static void Send(PrinterProfile s, byte[] data)
     {
         using var port = new SerialPort(s.SerialPortName, s.SerialBaudRate <= 0 ? 9600 : s.SerialBaudRate)
         {

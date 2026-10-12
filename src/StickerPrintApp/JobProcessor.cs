@@ -1,26 +1,32 @@
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 
 namespace StickerPrintApp;
 
-/// <summary>Prints queued jobs one at a time: claim in Firestore → print → write status back.</summary>
+/// <summary>
+/// Prints jobs: claim in Firestore → print → write status back. Each printer slot has its own queue
+/// and worker, so a slow or offline printer never holds up the others.
+/// </summary>
 public sealed class JobProcessor
 {
-    private readonly Channel<PrintJob> _queue = Channel.CreateUnbounded<PrintJob>(new UnboundedChannelOptions { SingleReader = true });
+    private readonly ConcurrentDictionary<int, Channel<PrintJob>> _queues = new();
     private readonly Func<AppSettings> _settings;
     private readonly Func<FirestoreJobSource?> _source;
+    private readonly CancellationToken _ct;
     private readonly PrintedLog _printedLog = new();
     private readonly HashSet<string> _inFlight = [];
 
-    public JobProcessor(Func<AppSettings> settings, Func<FirestoreJobSource?> source)
+    public JobProcessor(Func<AppSettings> settings, Func<FirestoreJobSource?> source, CancellationToken ct)
     {
         _settings = settings;
         _source = source;
+        _ct = ct;
     }
 
     public event Action<PrintJob>? JobChanged;
     public event Action<string>? Log;
 
-    /// <summary>Queues a job. Returns false if it is already being handled or was printed before.</summary>
+    /// <summary>Queues a job on its printer. Returns false if it is already being handled or was printed before.</summary>
     public bool Enqueue(PrintJob job)
     {
         if (!job.IsReprint)
@@ -35,76 +41,98 @@ public sealed class JobProcessor
         }
 
         job.State = JobState.Queued;
-        job.Message = "";
+        job.Message = $"รอคิว Printer {job.ProfileId}";
         JobChanged?.Invoke(job);
-        _queue.Writer.TryWrite(job);
+        QueueFor(job.ProfileId).Writer.TryWrite(job);
         return true;
     }
 
-    public async Task RunAsync(CancellationToken ct)
-    {
-        await foreach (var job in _queue.Reader.ReadAllAsync(ct))
+    private Channel<PrintJob> QueueFor(int profileId) =>
+        _queues.GetOrAdd(profileId, id =>
         {
-            var s = _settings().Clone(); // settings may change in the UI while we print
-            var source = _source();
-            var writeBack = s.WriteBackStatus && !job.IsTest && source is not null;
-            var claimed = false;
-            try
+            var channel = Channel.CreateUnbounded<PrintJob>(new UnboundedChannelOptions { SingleReader = true });
+            _ = Task.Run(() => RunAsync(channel.Reader, _ct));
+            return channel;
+        });
+
+    private async Task RunAsync(ChannelReader<PrintJob> reader, CancellationToken ct)
+    {
+        try
+        {
+            await foreach (var job in reader.ReadAllAsync(ct))
+                await ProcessAsync(job, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // app closing
+        }
+    }
+
+    private async Task ProcessAsync(PrintJob job, CancellationToken ct)
+    {
+        var settings = _settings().Clone(); // settings may change in the UI while we print
+        var source = _source();
+        var claimed = false;
+        var writeBack = settings.WriteBackStatus && !job.IsTest && source is not null;
+        try
+        {
+            var profile = settings.FindPrinter(job.ProfileId)
+                          ?? throw new InvalidOperationException($"ไม่มี Printer {job.ProfileId} ในการตั้งค่า");
+            var label = $"Printer {profile.Id}: {StickerPrinter.Describe(profile)}";
+
+            if (!job.IsReprint && settings.WriteBackStatus)
             {
-                if (!job.IsReprint && s.WriteBackStatus)
+                if (source is null)
+                    throw new InvalidOperationException("ยังไม่ได้เชื่อมต่อ Firestore");
+                claimed = await source.TryClaimAsync(job, ct);
+                if (!claimed)
                 {
-                    if (source is null)
-                        throw new InvalidOperationException("ยังไม่ได้เชื่อมต่อ Firestore");
-                    claimed = await source.TryClaimAsync(job.DocumentId, ct);
-                    if (!claimed)
-                    {
-                        Update(job, JobState.Skipped, "งานนี้ถูกพิมพ์/รับไปแล้วโดยเครื่องอื่น");
-                        continue;
-                    }
-                }
-
-                Update(job, JobState.Printing, $"กำลังพิมพ์ที่ {PrinterLabel(s)}");
-                StickerPrinter.Print(job, s, s.Copies, Log);
-
-                if (!job.IsReprint && !job.IsTest)
-                    _printedLog.Add(job.DocumentId);
-
-                if (writeBack)
-                {
-                    try
-                    {
-                        await source!.MarkPrintedAsync(job.DocumentId, PrinterLabel(s), ct);
-                    }
-                    catch (Exception ex)
-                    {
-                        Log?.Invoke($"พิมพ์ {job.DocumentId} แล้ว แต่บันทึกสถานะกลับ Firestore ไม่สำเร็จ: {ex.GetBaseException().Message}");
-                    }
-                }
-
-                Update(job, JobState.Printed, $"{PrinterLabel(s)} × {Math.Max(1, s.Copies)}");
-                Log?.Invoke($"พิมพ์แล้ว: {job.DisplayName} ({job.DocumentId})");
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                Update(job, JobState.Error, "ยกเลิก");
-                break;
-            }
-            catch (Exception ex)
-            {
-                var msg = ex.GetBaseException().Message;
-                Update(job, JobState.Error, msg);
-                Log?.Invoke($"พิมพ์ {job.DocumentId} ไม่สำเร็จ: {msg}");
-                if (writeBack && (claimed || job.IsReprint))
-                {
-                    try { await source!.MarkErrorAsync(job.DocumentId, msg, CancellationToken.None); }
-                    catch (Exception ex2) { Log?.Invoke($"บันทึกสถานะ error ไม่สำเร็จ: {ex2.GetBaseException().Message}"); }
+                    Update(job, JobState.Skipped, "งานนี้ถูกพิมพ์/รับไปแล้วโดยเครื่องอื่น");
+                    return;
                 }
             }
-            finally
+
+            Update(job, JobState.Printing, $"กำลังพิมพ์ที่ {label}");
+            StickerPrinter.Print(job, profile, settings.FontFamily, profile.Copies, Log);
+
+            if (!job.IsReprint && !job.IsTest)
+                _printedLog.Add(job.DocumentId);
+
+            if (writeBack)
             {
-                if (!job.IsReprint)
-                    lock (_inFlight) _inFlight.Remove(job.DocumentId);
+                try
+                {
+                    await source!.MarkPrintedAsync(job, label, ct);
+                }
+                catch (Exception ex)
+                {
+                    Log?.Invoke($"พิมพ์ {job.DocumentId} แล้ว แต่บันทึกสถานะกลับ Firestore ไม่สำเร็จ: {ex.GetBaseException().Message}");
+                }
             }
+
+            Update(job, JobState.Printed, $"{label} × {Math.Max(1, profile.Copies)}");
+            Log?.Invoke($"พิมพ์แล้ว: {job.DisplayName} ({job.DocumentId}) → {label}");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            Update(job, JobState.Error, "ยกเลิก");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var msg = ex.GetBaseException().Message;
+            Update(job, JobState.Error, msg);
+            Log?.Invoke($"พิมพ์ {job.DocumentId} ไม่สำเร็จ: {msg}");
+            if (writeBack && (claimed || job.IsReprint))
+            {
+                try { await source!.MarkErrorAsync(job, msg, CancellationToken.None); }
+                catch (Exception ex2) { Log?.Invoke($"บันทึกสถานะ error ไม่สำเร็จ: {ex2.GetBaseException().Message}"); }
+            }
+        }
+        finally
+        {
+            if (!job.IsReprint)
+                lock (_inFlight) _inFlight.Remove(job.DocumentId);
         }
     }
 
@@ -114,8 +142,6 @@ public sealed class JobProcessor
         job.Message = message;
         JobChanged?.Invoke(job);
     }
-
-    private static string PrinterLabel(AppSettings s) => StickerPrinter.Describe(s);
 }
 
 /// <summary>
